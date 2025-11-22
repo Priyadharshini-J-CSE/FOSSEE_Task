@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 # Chemical Equipment Parameter Visualizer
 
 A hybrid Web + Desktop application for analyzing chemical equipment data with Django backend, React web frontend, and PyQt5 desktop frontend.
@@ -72,3 +73,7 @@ The `sample_equipment_data.csv` file contains sample chemical equipment data wit
 - **Desktop Frontend**: PyQt5 + Matplotlib
 - **Database**: SQLite
 - **Data Processing**: Pandas
+=======
+# FOSSEE_Task
+Task for the internship
+>>>>>>> 30ce63a714994704a7e4db4a05d05337e4bafded
