@@ -91,11 +91,16 @@ def get_history(request):
     datasets = Dataset.objects.filter(user=request.user)[:5]
     history = []
     for dataset in datasets:
+        summary = dataset.get_summary()
         history.append({
             'id': dataset.id,
             'name': dataset.name,
             'uploaded_at': dataset.uploaded_at,
-            'summary': dataset.get_summary()
+            'summary': summary,
+            'preview_chart_data': {
+                'type_distribution': summary['type_distribution'],
+                'total_count': summary['total_count']
+            }
         })
     return Response(history)
 
@@ -104,9 +109,45 @@ def get_history(request):
 def get_dataset(request, dataset_id):
     try:
         dataset = Dataset.objects.get(id=dataset_id, user=request.user)
+        data = dataset.get_data()
+        summary = dataset.get_summary()
+        
+        # Generate analytics data for charts
+        df = pd.DataFrame(data)
+        analytics = {
+            'type_distribution': summary['type_distribution'],
+            'parameter_trends': {
+                'equipment_names': [item['Equipment Name'] for item in data],
+                'flowrates': [item['Flowrate'] for item in data],
+                'pressures': [item['Pressure'] for item in data],
+                'temperatures': [item['Temperature'] for item in data]
+            },
+            'statistics': {
+                'flowrate_stats': {
+                    'min': df['Flowrate'].min(),
+                    'max': df['Flowrate'].max(),
+                    'mean': df['Flowrate'].mean(),
+                    'std': df['Flowrate'].std()
+                },
+                'pressure_stats': {
+                    'min': df['Pressure'].min(),
+                    'max': df['Pressure'].max(),
+                    'mean': df['Pressure'].mean(),
+                    'std': df['Pressure'].std()
+                },
+                'temperature_stats': {
+                    'min': df['Temperature'].min(),
+                    'max': df['Temperature'].max(),
+                    'mean': df['Temperature'].mean(),
+                    'std': df['Temperature'].std()
+                }
+            }
+        }
+        
         return Response({
-            'data': dataset.get_data(),
-            'summary': dataset.get_summary()
+            'data': data,
+            'summary': summary,
+            'analytics': analytics
         })
     except Dataset.DoesNotExist:
         return Response({'error': 'Dataset not found'}, status=status.HTTP_404_NOT_FOUND)
@@ -143,3 +184,50 @@ def generate_report(request):
         
     except Dataset.DoesNotExist:
         return Response({'error': 'Dataset not found'}, status=status.HTTP_404_NOT_FOUND)
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def get_dashboard(request):
+    try:
+        datasets = Dataset.objects.filter(user=request.user)[:5]
+        if not datasets:
+            return Response({'message': 'No data available'})
+        
+        # Aggregate data from all datasets
+        all_data = []
+        total_equipment = 0
+        type_counts = {}
+        
+        for dataset in datasets:
+            data = dataset.get_data()
+            summary = dataset.get_summary()
+            all_data.extend(data)
+            total_equipment += summary['total_count']
+            
+            for eq_type, count in summary['type_distribution'].items():
+                type_counts[eq_type] = type_counts.get(eq_type, 0) + count
+        
+        # Calculate smart insights
+        df = pd.DataFrame(all_data)
+        
+        dashboard_data = {
+            'overview': {
+                'total_equipment': total_equipment,
+                'total_datasets': len(datasets),
+                'equipment_types': len(type_counts),
+                'avg_flowrate': df['Flowrate'].mean(),
+                'avg_pressure': df['Pressure'].mean(),
+                'avg_temperature': df['Temperature'].mean()
+            },
+            'type_distribution': type_counts,
+            'insights': {
+                'most_common_type': max(type_counts, key=type_counts.get) if type_counts else 'None',
+                'efficiency_score': min(100, max(0, 100 - df['Flowrate'].std())),
+                'outliers': len(df[abs(df['Flowrate'] - df['Flowrate'].mean()) > 2 * df['Flowrate'].std()])
+            }
+        }
+        
+        return Response(dashboard_data)
+        
+    except Exception as e:
+        return Response({'error': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)

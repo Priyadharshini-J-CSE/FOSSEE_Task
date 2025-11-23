@@ -79,9 +79,17 @@ class EquipmentAnalyzer(QMainWindow):
         self.history_list.itemDoubleClicked.connect(self.load_dataset)
         history_layout.addWidget(self.history_list)
         
+        # History buttons
+        history_btn_layout = QHBoxLayout()
+        self.analytics_btn = QPushButton('View Analytics')
+        self.analytics_btn.clicked.connect(self.view_analytics)
+        history_btn_layout.addWidget(self.analytics_btn)
+        
         self.report_btn = QPushButton('Generate Report')
         self.report_btn.clicked.connect(self.generate_report)
-        history_layout.addWidget(self.report_btn)
+        history_btn_layout.addWidget(self.report_btn)
+        
+        history_layout.addLayout(history_btn_layout)
         
         main_layout.addLayout(history_layout)
         
@@ -178,6 +186,24 @@ class EquipmentAnalyzer(QMainWindow):
         except Exception as e:
             QMessageBox.critical(self, 'Error', f'Failed to load dataset: {str(e)}')
             
+    def view_analytics(self):
+        current_item = self.history_list.currentItem()
+        if current_item:
+            dataset_id = self.history_data[current_item.text()]
+            try:
+                response = requests.get(f'{self.api_base}/dataset/{dataset_id}/', auth=self.auth)
+                if response.status_code == 200:
+                    data = response.json()
+                    self.show_analytics_window(data)
+            except Exception as e:
+                QMessageBox.critical(self, 'Error', f'Failed to load analytics: {str(e)}')
+        else:
+            QMessageBox.warning(self, 'Warning', 'Please select a dataset from history first.')
+            
+    def show_analytics_window(self, data):
+        analytics_window = AnalyticsWindow(data, self)
+        analytics_window.exec_()
+            
     def generate_report(self):
         current_item = self.history_list.currentItem()
         if current_item:
@@ -196,6 +222,123 @@ class EquipmentAnalyzer(QMainWindow):
                         
             except Exception as e:
                 QMessageBox.critical(self, 'Error', f'Report generation failed: {str(e)}')
+
+class AnalyticsWindow(QDialog):
+    def __init__(self, data, parent=None):
+        super().__init__(parent)
+        self.data = data
+        self.initUI()
+        
+    def initUI(self):
+        self.setWindowTitle('Dataset Analytics')
+        self.setGeometry(150, 150, 1200, 800)
+        
+        layout = QVBoxLayout()
+        self.setLayout(layout)
+        
+        # Title
+        title = QLabel('Dataset Analytics Dashboard')
+        title.setAlignment(Qt.AlignCenter)
+        title.setStyleSheet('font-size: 18px; font-weight: bold; margin: 10px;')
+        layout.addWidget(title)
+        
+        # Statistics section
+        stats_widget = QWidget()
+        stats_layout = QHBoxLayout()
+        stats_widget.setLayout(stats_layout)
+        
+        if 'analytics' in self.data:
+            analytics = self.data['analytics']
+            
+            # Flowrate stats
+            flowrate_stats = QLabel(f"""
+            Flowrate Statistics:
+            Min: {analytics['statistics']['flowrate_stats']['min']:.2f}
+            Max: {analytics['statistics']['flowrate_stats']['max']:.2f}
+            Mean: {analytics['statistics']['flowrate_stats']['mean']:.2f}
+            Std: {analytics['statistics']['flowrate_stats']['std']:.2f}
+            """)
+            flowrate_stats.setStyleSheet('border: 1px solid gray; padding: 10px; margin: 5px;')
+            stats_layout.addWidget(flowrate_stats)
+            
+            # Pressure stats
+            pressure_stats = QLabel(f"""
+            Pressure Statistics:
+            Min: {analytics['statistics']['pressure_stats']['min']:.2f}
+            Max: {analytics['statistics']['pressure_stats']['max']:.2f}
+            Mean: {analytics['statistics']['pressure_stats']['mean']:.2f}
+            Std: {analytics['statistics']['pressure_stats']['std']:.2f}
+            """)
+            pressure_stats.setStyleSheet('border: 1px solid gray; padding: 10px; margin: 5px;')
+            stats_layout.addWidget(pressure_stats)
+            
+            # Temperature stats
+            temp_stats = QLabel(f"""
+            Temperature Statistics:
+            Min: {analytics['statistics']['temperature_stats']['min']:.2f}
+            Max: {analytics['statistics']['temperature_stats']['max']:.2f}
+            Mean: {analytics['statistics']['temperature_stats']['mean']:.2f}
+            Std: {analytics['statistics']['temperature_stats']['std']:.2f}
+            """)
+            temp_stats.setStyleSheet('border: 1px solid gray; padding: 10px; margin: 5px;')
+            stats_layout.addWidget(temp_stats)
+            
+        layout.addWidget(stats_widget)
+        
+        # Charts section
+        self.figure = Figure(figsize=(12, 8))
+        self.canvas = FigureCanvas(self.figure)
+        layout.addWidget(self.canvas)
+        
+        self.create_charts()
+        
+        # Close button
+        close_btn = QPushButton('Close')
+        close_btn.clicked.connect(self.close)
+        layout.addWidget(close_btn)
+        
+    def create_charts(self):
+        self.figure.clear()
+        
+        if 'analytics' in self.data:
+            analytics = self.data['analytics']
+            
+            # Create subplots
+            ax1 = self.figure.add_subplot(2, 2, 1)
+            ax2 = self.figure.add_subplot(2, 2, 2)
+            ax3 = self.figure.add_subplot(2, 1, 2)
+            
+            # Equipment type distribution (bar)
+            types = list(analytics['type_distribution'].keys())
+            counts = list(analytics['type_distribution'].values())
+            ax1.bar(types, counts, color=['#FF6384', '#36A2EB', '#FFCE56', '#4BC0C0', '#9966FF'])
+            ax1.set_title('Equipment Type Distribution')
+            ax1.set_xlabel('Equipment Type')
+            ax1.set_ylabel('Count')
+            
+            # Equipment type distribution (pie)
+            ax2.pie(counts, labels=types, autopct='%1.1f%%', 
+                   colors=['#FF6384', '#36A2EB', '#FFCE56', '#4BC0C0', '#9966FF'])
+            ax2.set_title('Equipment Type Distribution')
+            
+            # Parameter trends
+            equipment_names = analytics['parameter_trends']['equipment_names']
+            flowrates = analytics['parameter_trends']['flowrates']
+            pressures = analytics['parameter_trends']['pressures']
+            temperatures = analytics['parameter_trends']['temperatures']
+            
+            x_pos = range(len(equipment_names))
+            ax3.plot(x_pos, flowrates, 'o-', label='Flowrate', color='#FF6384')
+            ax3.plot(x_pos, pressures, 's-', label='Pressure', color='#36A2EB')
+            ax3.plot(x_pos, temperatures, '^-', label='Temperature', color='#FFCE56')
+            ax3.set_title('Parameter Trends Across Equipment')
+            ax3.set_xlabel('Equipment Index')
+            ax3.set_ylabel('Parameter Values')
+            ax3.legend()
+            ax3.grid(True, alpha=0.3)
+            
+            self.figure.tight_layout()
+            self.canvas.draw()
 
 if __name__ == '__main__':
     app = QApplication(sys.argv)
